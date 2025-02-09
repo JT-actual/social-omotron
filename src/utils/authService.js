@@ -3,10 +3,12 @@ const SCOPES = [
 ];
 
 const TOKEN_STORAGE_KEY = 'gmail_access_token';
+const TOKEN_EXPIRY_KEY = 'gmail_token_expiry';
 
 class AuthService {
   constructor() {
     this.accessToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+    this.tokenExpiry = localStorage.getItem(TOKEN_EXPIRY_KEY);
   }
 
   async initializeGoogleAuth() {
@@ -44,11 +46,13 @@ class AuthService {
               throw new Error('Failed to get auth instance');
             }
 
-            // Check if user is already signed in
+            // Check if user is already signed in and token is valid
             if (authInstance.isSignedIn.get()) {
               const user = authInstance.currentUser.get();
-              this.accessToken = user.getAuthResponse().access_token;
-              localStorage.setItem(TOKEN_STORAGE_KEY, this.accessToken);
+              const authResponse = user.getAuthResponse();
+              this.accessToken = authResponse.access_token;
+              this.tokenExpiry = authResponse.expires_at;
+              this.updateLocalStorage(this.accessToken, this.tokenExpiry);
             }
 
             resolve(authInstance);
@@ -63,6 +67,26 @@ class AuthService {
     });
   }
 
+  updateLocalStorage(token, expiry) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    localStorage.setItem(TOKEN_EXPIRY_KEY, expiry);
+  }
+
+  async refreshToken() {
+    try {
+      const auth = await this.initializeGoogleAuth();
+      const user = auth.currentUser.get();
+      const authResponse = await user.reloadAuthResponse();
+      this.accessToken = authResponse.access_token;
+      this.tokenExpiry = authResponse.expires_at;
+      this.updateLocalStorage(this.accessToken, this.tokenExpiry);
+      return this.accessToken;
+    } catch (error) {
+      console.error('Error refreshing token:', error);
+      throw error;
+    }
+  }
+
   async signIn() {
     try {
       console.log('Starting sign in process...');
@@ -70,12 +94,14 @@ class AuthService {
       
       console.log('Requesting user consent...');
       const user = await auth.signIn({
-        prompt: 'select_account'  // Changed to allow account selection
+        prompt: 'select_account'
       });
       
       console.log('User signed in successfully');
-      this.accessToken = user.getAuthResponse().access_token;
-      localStorage.setItem(TOKEN_STORAGE_KEY, this.accessToken);
+      const authResponse = user.getAuthResponse();
+      this.accessToken = authResponse.access_token;
+      this.tokenExpiry = authResponse.expires_at;
+      this.updateLocalStorage(this.accessToken, this.tokenExpiry);
       return this.accessToken;
     } catch (error) {
       console.error('Detailed sign-in error:', error);
@@ -91,19 +117,35 @@ class AuthService {
       const auth = await this.initializeGoogleAuth();
       await auth.signOut();
       this.accessToken = null;
+      this.tokenExpiry = null;
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(TOKEN_EXPIRY_KEY);
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;
     }
   }
 
-  getAccessToken() {
+  isTokenExpired() {
+    if (!this.tokenExpiry) return true;
+    // Check if token expires in less than 5 minutes
+    return Date.now() >= (this.tokenExpiry - 300000);
+  }
+
+  async getAccessToken() {
+    if (this.isTokenExpired()) {
+      try {
+        await this.refreshToken();
+      } catch (error) {
+        console.error('Error refreshing token:', error);
+        throw new Error('Authentication expired. Please sign in again.');
+      }
+    }
     return this.accessToken;
   }
 
   isAuthenticated() {
-    return !!this.accessToken;
+    return !!this.accessToken && !this.isTokenExpired();
   }
 }
 

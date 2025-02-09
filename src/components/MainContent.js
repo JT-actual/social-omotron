@@ -14,9 +14,8 @@ function MainContent() {
     setIsLoading(true);
     setError(null);
     try {
-      const accessToken = authService.getAccessToken();
+      const accessToken = await authService.getAccessToken();
       console.log('Access token available:', !!accessToken);
-      console.log('Token preview:', accessToken ? `${accessToken.substring(0, 10)}...` : 'No token');
       
       const gmailAPI = new GmailAPI(accessToken);
       console.log('Gmail API instance created');

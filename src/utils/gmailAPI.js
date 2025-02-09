@@ -17,7 +17,6 @@ class GmailAPI {
     if (!accessToken) {
       throw new Error('Access token is required');
     }
-    console.log('Initializing Gmail API with token:', accessToken.substring(0, 10) + '...');
     
     this.axiosInstance = axios.create({
       headers: {
